@@ -206,7 +206,16 @@
                             </div>
                         </div>
                         <div class="card-body" style="min-height: 200px; max-height: 600px; overflow-y: auto;">
-                            @if (string.IsNullOrEmpty(summaryText))
+                            @if (isSummarizing)
+                            {
+                                <div class="text-center mt-5">
+                                    <div class="spinner-border text-info mb-3" role="status">
+                                        <span class="visually-hidden">生成中...</span>
+                                    </div>
+                                    <p class="text-muted">AI要約を生成しています...</p>
+                                </div>
+                            }
+                            else if (string.IsNullOrEmpty(summaryText))
                             {
                                 <p class="text-muted text-center mt-5">話者分離完了後、「要約生成」ボタンをクリックしてください</p>
                             }
