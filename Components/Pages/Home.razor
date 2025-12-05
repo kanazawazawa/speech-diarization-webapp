@@ -8,12 +8,75 @@
 <PageTitle>リアルタイム音声文字起こし</PageTitle>
 
 <div class="container-fluid px-4 py-3">
+    <!-- 免責事項・プライバシー通知 -->
+    @if (showPrivacyNotice)
+    {
+        <div class="modal d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h5 class="modal-title">⚠️ 重要：プライバシーと利用規約</h5>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning mb-3">
+                            <strong>⚠️ このアプリケーションはデモンストレーション目的のみです</strong>
+                        </div>
+                        
+                        <h6 class="fw-bold mb-2">🔒 データの取り扱いについて</h6>
+                        <ul class="mb-3">
+                            <li><strong>音声データは一時的にサーバーに保存されます</strong>（処理後に自動削除）</li>
+                            <li>文字起こし結果と要約は<strong>クラウドサービスに送信</strong>されます</li>
+                            <li><strong>会話履歴はサービス側に保存</strong>されます</li>
+                            <li>データは<strong>暗号化された通信</strong>で送信されますが、完全な秘匿性は保証されません</li>
+                        </ul>
+
+                        <h6 class="fw-bold mb-2">🚫 絶対に入力してはいけない情報</h6>
+                        <ul class="mb-3">
+                            <li><strong>実名、住所、電話番号</strong>などの個人を特定できる情報（PII）</li>
+                            <li><strong>証明書番号、ID番号、マイナンバー</strong></li>
+                            <li>その他の<strong>機密情報や個人情報</strong></li>
+                        </ul>
+
+                        <h6 class="fw-bold mb-2">⚠️ 免責事項</h6>
+                        <ul class="mb-3">
+                            <li>音声認識と話者分離の精度は<strong>保証されません</strong></li>
+                            <li>AI要約の内容の正確性は<strong>保証されません</strong></li>
+                            <li>このシステムの使用による<strong>いかなる損害についても責任を負いません</strong></li>
+                        </ul>
+
+                        <h6 class="fw-bold mb-2">🌍 個人情報の取り扱い</h6>
+                        <ul class="mb-3">
+                            <li><strong>このアプリはデモ・検証目的です</strong></li>
+                            <li><strong>実在の個人情報は入力しないでください</strong></li>
+                            <li>本番環境での使用には法的審査が必要です</li>
+                        </ul>
+
+                        <div class="alert alert-info mb-0">
+                            <strong>💡 推奨される使い方</strong><br>
+                            架空のシナリオでのデモンストレーションにご利用ください。<br>
+                            テストデータには「サンプルA」「テストケース1」などをお使いください。
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" @onclick="AcceptPrivacyNotice">
+                            上記の内容を理解し、同意します
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
     <!-- ヘッダー -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h2 class="mb-1 fw-bold">🎤 リアルタイム音声文字起こし</h2>
             <p class="text-muted small mb-0">
-                このシステムはデモンストレーション用です。音声認識および話者分離の結果には誤りが含まれる可能性があります。
+                <span class="badge bg-warning text-dark me-2">⚠️ デモ専用</span>
+                音声認識および話者分離の結果には誤りが含まれる可能性があります。
+                <a href="#" class="text-decoration-none ms-2" @onclick="ShowPrivacyNotice" @onclick:preventDefault>
+                    📋 プライバシーポリシーを再表示
+                </a>
             </p>
         </div>
         <div class="d-flex align-items-center gap-3">
@@ -243,6 +306,7 @@
     
     private bool isRecording = false;
     private bool isProcessing = false;
+    private bool showPrivacyNotice = true;
     private bool isSummarizing = false;
     private List<TranscriptionItem> realtimeTranscriptions = new();
     private List<TranscriptionItem> diarizedTranscriptions = new();
@@ -276,6 +340,18 @@
         });
     }
 
+    private void AcceptPrivacyNotice()
+    {
+        showPrivacyNotice = false;
+        StateHasChanged();
+    }
+
+    private void ShowPrivacyNotice()
+    {
+        showPrivacyNotice = true;
+        StateHasChanged();
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -299,40 +375,42 @@
         }
         else
         {
+            // Stop recording (browser still saves backup locally)
             await JS.InvokeVoidAsync("stopRecording");
             await SpeechService.StopRecognitionAsync();
             
-            // 録音ファイルから話者分離を実行
-            if (!string.IsNullOrEmpty(currentRecordingPath))
+            // Save buffered audio on server and process diarization
+            var savedFilePath = await SpeechService.SaveRecordingToFileAsync();
+            if (!string.IsNullOrEmpty(savedFilePath))
             {
-                await ProcessDiarization(currentRecordingPath);
+                await ProcessDiarization(savedFilePath);
+            }
+            else
+            {
+                Console.WriteLine("No audio data to process");
             }
         }
         
         StateHasChanged();
     }
     
-    private async Task ProcessDiarization(string recordingPath)
+    private async Task ProcessDiarization(string audioFilePath)
     {
         isProcessing = true;
         StateHasChanged();
         
         try
         {
-            Console.WriteLine($"Starting diarization for: {recordingPath}");
+            Console.WriteLine($"Starting diarization for: {audioFilePath}");
             
-            // WebMファイルのパスを取得（ダウンロードフォルダを確認）
-            var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-            var webmFile = Path.Combine(downloadsPath, recordingPath);
-            
-            if (!File.Exists(webmFile))
+            if (!File.Exists(audioFilePath))
             {
-                Console.WriteLine($"Recording file not found: {webmFile}");
+                Console.WriteLine($"Audio file not found: {audioFilePath}");
                 return;
             }
             
-            // Azure Speech高速文字起こしAPIで話者分離（WebM直接サポート）
-            var results = await SpeechService.ProcessAudioFileWithDiarizationAsync(webmFile);
+            // Azure Speech高速文字起こしAPIで話者分離
+            var results = await SpeechService.ProcessAudioFileWithDiarizationAsync(audioFilePath);
             
             // 話者分離用のマッピングをリセット
             diarizedSpeakerMapping.Clear();
@@ -359,10 +437,22 @@
             }
             
             Console.WriteLine($"Diarization completed: {results.Count} segments");
+            
+            // Clean up temporary file
+            try
+            {
+                File.Delete(audioFilePath);
+                Console.WriteLine($"Deleted temporary file: {audioFilePath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to delete temporary file: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Diarization error: {ex.Message}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
         }
         finally
         {

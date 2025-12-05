@@ -108,9 +108,11 @@ window.stopRecording = () => {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
         
-        // Save backup recording
+        // Save backup recording locally (browser only)
         setTimeout(() => {
             const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            console.log(`Recording blob created: ${blob.size} bytes`);
+            
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.style.display = 'none';
@@ -124,7 +126,6 @@ window.stopRecording = () => {
     }
     
     console.log('Recording stopped');
-    return recordingFileName; // 録音ファイル名を返す
 };
 
 function convertFloat32ToInt16(float32Array) {

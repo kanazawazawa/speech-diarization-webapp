@@ -28,6 +28,9 @@ public class SpeechRecognitionService
     {
         if (_isRecognizing) return;
 
+        // 録音バッファをクリア
+        while (_audioBuffer.TryDequeue(out _)) { }
+
         var speechKey = _configuration["AzureSpeech:Key"];
         var endpoint = _configuration["AzureSpeech:Endpoint"];
         var language = _configuration["Recognition:Language"] ?? "ja-JP";
@@ -105,6 +108,69 @@ public class SpeechRecognitionService
         _isRecognizing = false;
     }
 
+    public async Task<string?> SaveRecordingToFileAsync()
+    {
+        if (_audioBuffer.IsEmpty)
+        {
+            Console.WriteLine("No audio data in buffer");
+            return null;
+        }
+
+        try
+        {
+            // バッファから全音声データを取得
+            var allAudioData = new List<byte>();
+            while (_audioBuffer.TryDequeue(out var chunk))
+            {
+                allAudioData.AddRange(chunk);
+            }
+
+            Console.WriteLine($"Total audio data: {allAudioData.Count} bytes");
+
+            // WAVファイルとして保存
+            var tempDir = Path.GetTempPath();
+            var fileName = $"recording_{DateTime.Now:yyyyMMddHHmmss}.wav";
+            var filePath = Path.Combine(tempDir, fileName);
+
+            await CreateWavFileAsync(filePath, allAudioData.ToArray(), 16000, 1, 16);
+            Console.WriteLine($"Recording saved to: {filePath}");
+
+            return filePath;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving recording: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task CreateWavFileAsync(string filePath, byte[] pcmData, int sampleRate, int channels, int bitsPerSample)
+    {
+        using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+        using var writer = new BinaryWriter(fileStream);
+
+        // WAVヘッダーを書き込み
+        int byteRate = sampleRate * channels * bitsPerSample / 8;
+        int blockAlign = channels * bitsPerSample / 8;
+
+        writer.Write(new char[] { 'R', 'I', 'F', 'F' });
+        writer.Write(36 + pcmData.Length);
+        writer.Write(new char[] { 'W', 'A', 'V', 'E' });
+        writer.Write(new char[] { 'f', 'm', 't', ' ' });
+        writer.Write(16); // fmt chunk size
+        writer.Write((short)1); // PCM
+        writer.Write((short)channels);
+        writer.Write(sampleRate);
+        writer.Write(byteRate);
+        writer.Write((short)blockAlign);
+        writer.Write((short)bitsPerSample);
+        writer.Write(new char[] { 'd', 'a', 't', 'a' });
+        writer.Write(pcmData.Length);
+        writer.Write(pcmData);
+
+        await fileStream.FlushAsync();
+    }
+
     public async Task ProcessAudioDataAsync(byte[] audioData)
     {
         if (_pushStream != null && audioData != null && audioData.Length > 0)
@@ -112,6 +178,8 @@ public class SpeechRecognitionService
             try
             {
                 _pushStream.Write(audioData);
+                // バッファに音声データを保存（話者分離用）
+                _audioBuffer.Enqueue(audioData);
                 Console.WriteLine($"Audio data received: {audioData.Length} bytes");
             }
             catch (Exception ex)
