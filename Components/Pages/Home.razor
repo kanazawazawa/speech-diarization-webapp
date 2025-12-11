@@ -343,6 +343,7 @@
     private string summaryText = string.Empty;
     private string? summaryError = null;
     private string? lastProcessedAudioPath = null; // 最後に処理した音声ファイルのパス
+    private System.Threading.Timer? fileCleanupTimer = null; // ファイル自動削除用タイマー
 
     protected override void OnInitialized()
     {
@@ -421,6 +422,13 @@
     {
         isProcessing = true;
         lastProcessedAudioPath = audioFilePath; // 最後に処理したファイルパスを保存
+        
+        // 30分後に自動削除するタイマーを設定
+        fileCleanupTimer?.Dispose();
+        fileCleanupTimer = new System.Threading.Timer(_ => 
+        {
+            DeleteAudioFile(audioFilePath);
+        }, null, TimeSpan.FromMinutes(30), Timeout.InfiniteTimeSpan);
         StateHasChanged();
         
         try
@@ -808,6 +816,31 @@
         SpeechService.OnTranscriptionReceived -= HandleTranscription;
         SpeechService.OnTranscribing -= HandleTranscribing;
         objRef?.Dispose();
+        
+        // タイマーを停止
+        fileCleanupTimer?.Dispose();
+        
+        // 音声ファイルを削除
+        if (!string.IsNullOrEmpty(lastProcessedAudioPath))
+        {
+            DeleteAudioFile(lastProcessedAudioPath);
+        }
+    }
+    
+    private void DeleteAudioFile(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+                Console.WriteLine($"削除しました: {filePath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ファイル削除エラー: {ex.Message}");
+        }
     }
 
     public class TranscriptionItem
