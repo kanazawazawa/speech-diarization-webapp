@@ -1,3 +1,5 @@
+using Azure.Core;
+using Azure.Identity;
 using Microsoft.CognitiveServices.Speech;
 using Microsoft.CognitiveServices.Speech.Audio;
 using Microsoft.CognitiveServices.Speech.Transcription;
@@ -31,16 +33,23 @@ public class SpeechRecognitionService
         // 録音バッファをクリア
         while (_audioBuffer.TryDequeue(out _)) { }
 
-        var speechKey = _configuration["AzureSpeech:Key"];
         var endpoint = _configuration["AzureSpeech:Endpoint"];
+        var resourceId = _configuration["AzureSpeech:ResourceId"];
         var language = _configuration["Recognition:Language"] ?? "ja-JP";
 
-        if (string.IsNullOrEmpty(speechKey) || string.IsNullOrEmpty(endpoint))
+        if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(resourceId))
         {
-            throw new InvalidOperationException("Speech configuration is missing");
+            throw new InvalidOperationException("Speech configuration is missing (Endpoint and ResourceId required)");
         }
 
-        var speechConfig = SpeechConfig.FromEndpoint(new Uri(endpoint), speechKey);
+        // Azure AD認証トークンを取得
+        var credential = new DefaultAzureCredential();
+        var tokenContext = new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" });
+        var accessToken = await credential.GetTokenAsync(tokenContext);
+        Console.WriteLine("Azure AD token acquired for Speech service");
+
+        var speechConfig = SpeechConfig.FromEndpoint(new Uri(endpoint));
+        speechConfig.AuthorizationToken = $"aad#{resourceId}#{accessToken.Token}";
         speechConfig.SpeechRecognitionLanguage = language;
         
         // 話者ダイアライゼーションの設定を強化
@@ -197,15 +206,20 @@ public class SpeechRecognitionService
     {
         var results = new List<(string Text, string SpeakerId, TimeSpan Offset)>();
         
-        var speechKey = _configuration["AzureSpeech:Key"];
         var endpoint = _configuration["AzureSpeech:Endpoint"];
         var region = _configuration["AzureSpeech:Region"];
         var language = _configuration["Recognition:Language"] ?? "ja-JP";
 
-        if (string.IsNullOrEmpty(speechKey) || string.IsNullOrEmpty(endpoint))
+        if (string.IsNullOrEmpty(endpoint))
         {
             throw new InvalidOperationException("Speech configuration is missing");
         }
+
+        // Azure AD認証トークンを取得
+        var credential = new DefaultAzureCredential();
+        var tokenContext = new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" });
+        var accessToken = await credential.GetTokenAsync(tokenContext);
+        Console.WriteLine("Azure AD token acquired for Fast Transcription API");
 
         try
         {
@@ -214,19 +228,10 @@ public class SpeechRecognitionService
             using var httpClient = new HttpClient();
             httpClient.Timeout = TimeSpan.FromMinutes(10);
             
-            // カスタムエンドポイントを使用する場合はそのまま、それ以外はリージョンベースのURL
-            string transcriptionUrl;
-            if (!string.IsNullOrEmpty(region))
-            {
-                transcriptionUrl = $"https://{region}.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2024-11-15";
-            }
-            else
-            {
-                // カスタムドメインの場合
-                var uri = new Uri(endpoint);
-                var baseUrl = $"{uri.Scheme}://{uri.Host}";
-                transcriptionUrl = $"{baseUrl}/speechtotext/transcriptions:transcribe?api-version=2024-11-15";
-            }
+            // Azure AD認証ではカスタムドメインエンドポイントを使用する必要がある
+            var uri = new Uri(endpoint);
+            var baseUrl = $"{uri.Scheme}://{uri.Host}";
+            var transcriptionUrl = $"{baseUrl}/speechtotext/transcriptions:transcribe?api-version=2024-11-15";
             
             Console.WriteLine($"Using transcription URL: {transcriptionUrl}");
             
@@ -235,7 +240,7 @@ public class SpeechRecognitionService
             // オーディオファイルを追加
             var audioBytes = await File.ReadAllBytesAsync(audioFilePath);
             var audioContent = new ByteArrayContent(audioBytes);
-            audioContent.Headers.ContentType = new MediaTypeHeaderValue("audio/webm");
+            audioContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
             multipartContent.Add(audioContent, "audio", Path.GetFileName(audioFilePath));
             
             // 定義を追加（ダイアライゼーション有効化）
@@ -255,9 +260,9 @@ public class SpeechRecognitionService
             var definitionContent = new StringContent(definitionJson, System.Text.Encoding.UTF8, "application/json");
             multipartContent.Add(definitionContent, "definition");
             
-            // リクエスト送信
+            // リクエスト送信（Azure AD Bearer トークン認証）
             var request = new HttpRequestMessage(HttpMethod.Post, transcriptionUrl);
-            request.Headers.Add("Ocp-Apim-Subscription-Key", speechKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Token);
             request.Content = multipartContent;
             
             Console.WriteLine("Sending transcription request...");

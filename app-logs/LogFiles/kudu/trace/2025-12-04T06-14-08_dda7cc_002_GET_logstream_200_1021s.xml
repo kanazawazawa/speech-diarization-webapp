@@ -1,8 +1,0 @@
-<step title="Incoming Request" date="2025-12-04T06:14:08.966" instance="dda7cc" url="/logstream" method="GET" type="request" pid="6160,2,8" Connection="Keep-Alive" Accept-Encoding="identity" Authorization="Bas..." Host="app-20251204-medsum.scm.azurewebsites.net" User-Agent="AZURECLI/2.75.0 (MSI)" x-ms-client-request-id="6de4c6f3-d0d8-11f0-a5d7-18ff0f35c8e5" X-ARR-LOG-ID="6de4c6f3-d0d8-11f0-a5d7-18ff0f35c8e5" CLIENT-IP="20.107.5.167:1348" X-SITE-DEPLOYMENT-ID="app-20251204-medsum" WAS-DEFAULT-HOSTNAME="app-20251204-medsum.scm.azurewebsites.net" X-Forwarded-Proto="https" X-AppService-Proto="https" X-Forwarded-TlsVersion="1.3" X-WAWS-Unencoded-URL="/logstream" X-MS-COLDSTART="1" >
-  <step title="LogStreamHandler.BeginProcessRequest" date="2025-12-04T06:14:09.484" >
-    <step title="LockFile &apos;C:\home\site\locks\hooks.lock&apos; acquired" date="2025-12-04T06:14:09.779" /><!-- duration: 0ms -->
-    <step title="LockFile &apos;C:\home\site\locks\hooks.lock&apos; released" date="2025-12-04T06:14:09.858" /><!-- duration: 0ms -->
-  </step><!-- duration: 374ms -->
-  <step title="LogStreamHandler.EndProcessRequest" date="2025-12-04T06:31:09.832" /><!-- duration: 0ms -->
-  <step title="Outgoing response" date="2025-12-04T06:31:09.894" type="response" statusCode="200" statusText="OK" Server="Microsoft-IIS/10.0" Cache-Control="private" X-AspNet-Version="4.0.30319" Content-Type="text/plain; charset=utf-8" /><!-- duration: 0ms -->
-</step><!-- duration: 1020944ms -->

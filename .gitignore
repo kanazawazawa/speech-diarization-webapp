@@ -61,3 +61,23 @@ deploy-*.zip
 DEPLOY.md
 deploy.sh
 deploy.ps1
+
+# Publish output
+publish/
+publish_out/
+
+# Azure App Service logs (downloaded from Kudu)
+LogFiles/
+app-logs/
+app-logs.zip
+recent-logs/
+recent-logs.zip
+
+# Azure deployment metadata
+deployments/
+
+# Temporary test/debug scripts
+test-api*.ps1
+
+# Pages (legacy, unused)
+Pages/
