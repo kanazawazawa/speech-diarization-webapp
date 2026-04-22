@@ -79,5 +79,5 @@ deployments/
 # Temporary test/debug scripts
 test-api*.ps1
 
-# Pages (legacy, unused)
-Pages/
+# Pages (legacy, unused - top-level only)
+/Pages/

@@ -12,18 +12,20 @@ namespace Speech2Text.Services;
 public class SpeechRecognitionService
 {
     private readonly IConfiguration _configuration;
+    private readonly ILogger<SpeechRecognitionService> _logger;
     private ConversationTranscriber? _conversationTranscriber;
     private PushAudioInputStream? _pushStream;
     private AudioConfig? _audioConfig;
     private readonly ConcurrentQueue<byte[]> _audioBuffer = new();
-    private bool _isRecognizing = false;
+    private bool _isRecognizing;
 
     public event Action<string, string>? OnTranscriptionReceived;
     public event Action<string, string>? OnTranscribing;
 
-    public SpeechRecognitionService(IConfiguration configuration)
+    public SpeechRecognitionService(IConfiguration configuration, ILogger<SpeechRecognitionService> logger)
     {
         _configuration = configuration;
+        _logger = logger;
     }
 
     public async Task StartRecognitionAsync()
@@ -46,7 +48,7 @@ public class SpeechRecognitionService
         var credential = new DefaultAzureCredential();
         var tokenContext = new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" });
         var accessToken = await credential.GetTokenAsync(tokenContext);
-        Console.WriteLine("Azure AD token acquired for Speech service");
+        _logger.LogInformation("Azure AD token acquired for Speech service");
 
         var speechConfig = SpeechConfig.FromEndpoint(new Uri(endpoint));
         speechConfig.AuthorizationToken = $"aad#{resourceId}#{accessToken.Token}";
@@ -73,7 +75,7 @@ public class SpeechRecognitionService
             if (e.Result.Reason == ResultReason.RecognizingSpeech && !string.IsNullOrWhiteSpace(e.Result.Text))
             {
                 OnTranscribing?.Invoke(e.Result.Text, e.Result.SpeakerId ?? "Unknown");
-                Console.WriteLine($"[Transcribing] Speaker: {e.Result.SpeakerId}, Text: {e.Result.Text}");
+                _logger.LogDebug("[Transcribing] Speaker: {SpeakerId}, Text: {Text}", e.Result.SpeakerId, e.Result.Text);
             }
         };
 
@@ -83,16 +85,16 @@ public class SpeechRecognitionService
             if (e.Result.Reason == ResultReason.RecognizedSpeech && !string.IsNullOrWhiteSpace(e.Result.Text))
             {
                 OnTranscriptionReceived?.Invoke(e.Result.Text, e.Result.SpeakerId ?? "Unknown");
-                Console.WriteLine($"[Transcribed] Speaker: {e.Result.SpeakerId}, Text: {e.Result.Text}");
+                _logger.LogInformation("[Transcribed] Speaker: {SpeakerId}, Text: {Text}", e.Result.SpeakerId, e.Result.Text);
             }
         };
 
         _conversationTranscriber.Canceled += (s, e) =>
         {
-            Console.WriteLine($"Recognition canceled: {e.Reason}");
+            _logger.LogWarning("Recognition canceled: {Reason}", e.Reason);
             if (e.Reason == CancellationReason.Error)
             {
-                Console.WriteLine($"Error: {e.ErrorDetails}");
+                _logger.LogError("Speech recognition error: {ErrorDetails}", e.ErrorDetails);
             }
         };
 
@@ -121,7 +123,7 @@ public class SpeechRecognitionService
     {
         if (_audioBuffer.IsEmpty)
         {
-            Console.WriteLine("No audio data in buffer");
+            _logger.LogWarning("No audio data in buffer");
             return null;
         }
 
@@ -134,7 +136,7 @@ public class SpeechRecognitionService
                 allAudioData.AddRange(chunk);
             }
 
-            Console.WriteLine($"Total audio data: {allAudioData.Count} bytes");
+            _logger.LogInformation("Total audio data: {ByteCount} bytes", allAudioData.Count);
 
             // WAVファイルとして保存
             var tempDir = Path.GetTempPath();
@@ -142,13 +144,13 @@ public class SpeechRecognitionService
             var filePath = Path.Combine(tempDir, fileName);
 
             await CreateWavFileAsync(filePath, allAudioData.ToArray(), 16000, 1, 16);
-            Console.WriteLine($"Recording saved to: {filePath}");
+            _logger.LogInformation("Recording saved to: {FilePath}", filePath);
 
             return filePath;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error saving recording: {ex.Message}");
+            _logger.LogError(ex, "Error saving recording");
             return null;
         }
     }
@@ -187,18 +189,13 @@ public class SpeechRecognitionService
             try
             {
                 _pushStream.Write(audioData);
-                // バッファに音声データを保存（話者分離用）
                 _audioBuffer.Enqueue(audioData);
-                Console.WriteLine($"Audio data received: {audioData.Length} bytes");
+                _logger.LogDebug("Audio data received: {ByteCount} bytes", audioData.Length);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error writing audio data: {ex.Message}");
+                _logger.LogError(ex, "Error writing audio data");
             }
-        }
-        else
-        {
-            Console.WriteLine($"Push stream is null or audio data is empty. Stream null: {_pushStream == null}, Data length: {audioData?.Length ?? 0}");
         }
     }
 
@@ -207,7 +204,6 @@ public class SpeechRecognitionService
         var results = new List<(string Text, string SpeakerId, TimeSpan Offset)>();
         
         var endpoint = _configuration["AzureSpeech:Endpoint"];
-        var region = _configuration["AzureSpeech:Region"];
         var language = _configuration["Recognition:Language"] ?? "ja-JP";
 
         if (string.IsNullOrEmpty(endpoint))
@@ -219,11 +215,11 @@ public class SpeechRecognitionService
         var credential = new DefaultAzureCredential();
         var tokenContext = new TokenRequestContext(new[] { "https://cognitiveservices.azure.com/.default" });
         var accessToken = await credential.GetTokenAsync(tokenContext);
-        Console.WriteLine("Azure AD token acquired for Fast Transcription API");
+        _logger.LogInformation("Azure AD token acquired for Fast Transcription API");
 
         try
         {
-            Console.WriteLine($"Starting fast transcription with diarization for: {audioFilePath}");
+            _logger.LogInformation("Starting fast transcription with diarization for: {FilePath}", audioFilePath);
             
             using var httpClient = new HttpClient();
             httpClient.Timeout = TimeSpan.FromMinutes(10);
@@ -233,7 +229,7 @@ public class SpeechRecognitionService
             var baseUrl = $"{uri.Scheme}://{uri.Host}";
             var transcriptionUrl = $"{baseUrl}/speechtotext/transcriptions:transcribe?api-version=2024-11-15";
             
-            Console.WriteLine($"Using transcription URL: {transcriptionUrl}");
+            _logger.LogInformation("Using transcription URL: {Url}", transcriptionUrl);
             
             using var multipartContent = new MultipartFormDataContent();
             
@@ -265,26 +261,26 @@ public class SpeechRecognitionService
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken.Token);
             request.Content = multipartContent;
             
-            Console.WriteLine("Sending transcription request...");
+            _logger.LogInformation("Sending transcription request...");
             var response = await httpClient.SendAsync(request);
             
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"Error response: {errorContent}");
+                _logger.LogError("Transcription API error: {ErrorContent}", errorContent);
                 response.EnsureSuccessStatusCode();
             }
             
             var responseJson = await response.Content.ReadAsStringAsync();
-            Console.WriteLine("Transcription completed, parsing results...");
-            Console.WriteLine($"Response JSON (first 500 chars): {responseJson.Substring(0, Math.Min(500, responseJson.Length))}");
+            _logger.LogInformation("Transcription completed, parsing results...");
+            _logger.LogDebug("Response JSON (first 500 chars): {Json}", responseJson[..Math.Min(500, responseJson.Length)]);
             
             // 結果を解析
             var result = JsonSerializer.Deserialize<JsonElement>(responseJson);
             
             if (result.TryGetProperty("phrases", out var phrases))
             {
-                Console.WriteLine($"Found {phrases.GetArrayLength()} phrases");
+                _logger.LogInformation("Found {PhraseCount} phrases", phrases.GetArrayLength());
                 
                 foreach (var phrase in phrases.EnumerateArray())
                 {
@@ -297,18 +293,17 @@ public class SpeechRecognitionService
                     if (phrase.TryGetProperty("speaker", out var speakerElement))
                     {
                         var speakerNum = speakerElement.GetInt32();
-                        speakerId = $"Guest-{speakerNum + 1}"; // 0-based to 1-based
-                        Console.WriteLine($"Phrase: Speaker={speakerId}, Text={text.Substring(0, Math.Min(50, text.Length))}...");
+                        speakerId = $"Guest-{speakerNum + 1}";
+                        _logger.LogDebug("Phrase: Speaker={SpeakerId}, Text={Text}", speakerId, text[..Math.Min(50, text.Length)]);
                     }
                     else
                     {
-                        Console.WriteLine($"Warning: No speaker property found for phrase: {text.Substring(0, Math.Min(50, text.Length))}...");
-                        // speaker プロパティがない場合、channel を確認
+                        _logger.LogWarning("No speaker property found for phrase: {Text}", text[..Math.Min(50, text.Length)]);
                         if (phrase.TryGetProperty("channel", out var channelElement))
                         {
                             var channelNum = channelElement.GetInt32();
                             speakerId = $"Guest-{channelNum + 1}";
-                            Console.WriteLine($"Using channel instead: {speakerId}");
+                            _logger.LogDebug("Using channel instead: {SpeakerId}", speakerId);
                         }
                     }
                     
@@ -317,41 +312,17 @@ public class SpeechRecognitionService
             }
             else
             {
-                Console.WriteLine("Warning: No 'phrases' property in response");
+                _logger.LogWarning("No 'phrases' property in response");
             }
             
-            Console.WriteLine($"Parsed {results.Count} transcription segments");
+            _logger.LogInformation("Parsed {SegmentCount} transcription segments", results.Count);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Fast transcription error: {ex.Message}");
-            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            _logger.LogError(ex, "Fast transcription error");
             throw;
         }
 
         return results;
-    }
-
-    private string ExtractRegion(string endpoint)
-    {
-        // https://your-resource.cognitiveservices.azure.com/ から地域を抽出
-        // Speech Serviceのエンドポイントは通常 {region}.api.cognitive.microsoft.com 形式
-        // カスタムドメインの場合は、最初のセグメントを使用
-        var uri = new Uri(endpoint);
-        var host = uri.Host.Split('.')[0];
-        
-        // 一般的なリージョン名を確認
-        var knownRegions = new[] { "eastus", "westus", "westeurope", "southeastasia", "japaneast", "japanwest" };
-        foreach (var region in knownRegions)
-        {
-            if (host.Contains(region, StringComparison.OrdinalIgnoreCase))
-            {
-                return region;
-            }
-        }
-        
-        // カスタムドメインの場合、appsettings.jsonにリージョンを追加する必要がある
-        Console.WriteLine($"Warning: Could not extract region from endpoint {endpoint}, using host segment: {host}");
-        return host;
     }
 }

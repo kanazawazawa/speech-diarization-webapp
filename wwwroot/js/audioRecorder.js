@@ -107,22 +107,6 @@ window.stopRecording = () => {
     
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         mediaRecorder.stop();
-        
-        // Save backup recording locally (browser only)
-        setTimeout(() => {
-            const blob = new Blob(audioChunks, { type: 'audio/webm' });
-            console.log(`Recording blob created: ${blob.size} bytes`);
-            
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = recordingFileName;
-            document.body.appendChild(a);
-            a.click();
-            URL.revokeObjectURL(url);
-            console.log(`Backup recording saved: ${recordingFileName}`);
-        }, 100);
     }
     
     console.log('Recording stopped');
